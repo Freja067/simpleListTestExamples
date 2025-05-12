@@ -20,9 +20,9 @@ Feature: SimpleList behavior
       | banana |
       | cherry |
     Then the list size should be 4
-    And the element at index 0 should be "apple"
-    And the element at index 1 should be "banana"
-    And the element at index 2 should be "cherry"
+    And the element at index 1 should be "apple"
+    And the element at index 2 should be "banana"
+    And the element at index 3 should be "cherry"
 
   Scenario: Removing an element decreases the size
     Given an empty SimpleList
