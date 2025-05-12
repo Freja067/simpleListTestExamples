@@ -1,0 +1,136 @@
+plugins {
+    id 'java-library'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // JUnit 5 for running tests
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.9.3'
+    testImplementation 'io.cucumber:cucumber-java:7.14.0'
+    testImplementation 'io.cucumber:cucumber-junit-platform-engine:7.14.0'
+    testImplementation 'org.junit.platform:junit-platform-suite:1.10.1'
+    testImplementation 'net.jqwik:jqwik:1.9.2'
+
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+// The default test task
+tasks.named('test') {
+    useJUnitPlatform()
+    reports {
+        junitXml.required.set(true)
+        html.required.set(true)
+    }
+    finalizedBy('convertJUnitTestResultsToJson')
+    finalizedBy('convertCucumberResultsToJson')
+}
+
+// Task to convert XML test results to JSON
+tasks.register('convertJUnitTestResultsToJson') {
+    doLast {
+        def xmlReportDir = file("${buildDir}/test-results/test")
+        def jsonReportFile = file("${buildDir}/test-results/test-results.json")
+
+        if (xmlReportDir.exists()) {
+            def xmlFiles = xmlReportDir.listFiles().findAll { it.name.endsWith('.xml') }
+            def jsonResults = []
+
+            xmlFiles.each { xmlFile ->
+                def xmlParser = new groovy.util.XmlParser().parse(xmlFile)
+                def testCases = []
+
+                xmlParser.'testcase'.each { testCase ->
+                    def status = "passed"
+                    def failureMessage = null
+                    def failureStackTrace = null
+
+                    if (testCase.'failure') {
+                        status = "failed"
+                        failureMessage = testCase.'failure'[0].'@message' ?: ""
+                        failureStackTrace = testCase.'failure'[0].text().trim()
+                    } else if (testCase.'skipped') {
+                        status = "skipped"
+                    }
+
+                    testCases << [
+                        name: testCase.'@name',
+                        className: testCase.'@classname',
+                        time: testCase.'@time',
+                        status: status,
+                        failureMessage: failureMessage,
+                        stackTrace: failureStackTrace
+                    ]
+                }
+
+                def testSuite = [
+                    name: xmlParser.'@name',
+                    tests: xmlParser.'@tests',
+                    failures: xmlParser.'@failures',
+                    errors: xmlParser.'@errors',
+                    skipped: xmlParser.'@skipped',
+                    time: xmlParser.'@time',
+                    testCases: testCases
+                ]
+                jsonResults << testSuite
+            }
+
+            jsonReportFile.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(jsonResults))
+            println "Test results with failure info written to: ${jsonReportFile}"
+        } else {
+            println "No XML test results found to convert."
+        }
+    }
+}
+
+
+import groovy.json.JsonSlurper
+import groovy.json.JsonOutput
+
+tasks.register('convertCucumberResultsToJson') {
+    doLast {
+        def inputFile = file("${buildDir}/reports/tests/cucumber-reports/cucumber.json")
+        def outputFile = file("${buildDir}/test-results/cucumber-results.json")
+
+        if (!inputFile.exists()) {
+            println "No Cucumber report found at ${inputFile}"
+            return
+        }
+
+        def parsed = new JsonSlurper().parse(inputFile)
+        def results = []
+
+        parsed.each { feature ->
+            feature.elements.each { scenario ->
+                scenario.steps.each { step ->
+                    def result = step.result
+                    results << [
+                        feature       : feature.name,
+                        scenario      : scenario.name,
+                        stepName      : step.name,
+                        status        : result.status,
+                        durationMs    : (result.duration ?: 0) / 1_000_000, // ns → ms
+                        errorMessage  : result.error_message,
+                        timestamp     : new Date().format("yyyy-MM-dd'T'HH:mm:ss.SSSZ")
+                    ]
+                }
+            }
+        }
+
+        outputFile.text = JsonOutput.prettyPrint(JsonOutput.toJson(results))
+        println "Cucumber results written to: ${outputFile}"
+    }
+}
+
+
+
+
+
+
